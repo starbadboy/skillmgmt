@@ -1,5 +1,7 @@
 # skillmgmt
 
+English | [简体中文](./README.zh-CN.md)
+
 A local web app for managing **coding-agent skills** across multiple AI coding assistants — Claude, Codex, Cursor, and Antigravity — from a single UI.
 
 It scans your machine for installed skills (markdown files under each agent's skill directory), shows them in one library, and lets you edit, sync, and delete skills across agents.
