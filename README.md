@@ -8,12 +8,13 @@ It scans your machine for installed skills (markdown files under each agent's sk
 
 ## What it does
 
-- **Discovers skills** on disk by scanning each agent's known skill paths (`~/.claude/skills`, `~/.codex/skills`, `~/.cursor/rules`, `~/.antigravity/skills`, etc.).
-- **Detects drift** — when the same skill exists on more than one agent but the markdown content differs.
+- **Discovers skills** on disk by scanning each agent's known skill paths (`~/.claude/skills`, `~/.codex/skills`, `~/.cursor/rules`, `~/.gemini/antigravity/skills`, the vendor-neutral `~/.agents/skills`, etc.). Symlinked skill directories are followed.
+- **Detects drift** — when the same skill exists on more than one agent but the markdown content differs. Drift status refreshes automatically after every sync, edit, or delete.
 - **Edits skills** with a per-agent markdown editor (Content / Diff / Deploys tabs).
-- **Syncs skills** across agents — push one agent's version to selected targets in a click.
+- **Syncs skills** across agents — push one agent's version to selected targets in a click. **Select-all / Clear** pill in the drawer toggles every non-source target at once.
 - **Deletes skills** from individual agents.
-- **Bulk select** rows for batch operations.
+- **Lists installed Claude Code plugins** in a dedicated Plugins view, with bundled skill counts and a one-click link to filter the Skills view by plugin source.
+- **Bulk select** rows with a master checkbox in the header (supports indeterminate state); wired up for bulk delete across all agents a skill is installed on.
 - **Dark / light theme** toggle, persisted in `localStorage`.
 
 The UI is the **Console** design direction: dense, dark-by-default, Linear/Raycast energy — Geist + Geist Mono, lime accent, amber drift indicator.
@@ -23,9 +24,10 @@ The UI is the **Console** design direction: dense, dark-by-default, Linear/Rayca
 - **Frontend** — React 19 + Vite 7 + TypeScript, `lucide-react` icons.
 - **Backend** — Vite dev-server middleware (`vite.config.ts`) exposing a small REST API:
   - `GET /api/skills` — scan & return all discovered skills + per-agent content map
-  - `PUT /api/skills/:id` — update a skill's name, summary, content for a given agent
-  - `DELETE /api/skills/:id` — remove a skill from an agent
+  - `PUT /api/skills` — update a skill's name, summary, content for a given agent
+  - `DELETE /api/skills` — remove a skill from an agent
   - `POST /api/skills/sync` — copy a skill's content from one agent to a list of target agents
+  - `GET /api/plugins` — list installed Claude Code plugins, with bundled skill / agent / command / hook counts
 - **No database** — all state lives in the on-disk skill files; the app is a thin editor over the filesystem.
 
 ## Project layout
@@ -39,8 +41,9 @@ src/
   types.ts         # shared TS types
   main.tsx         # React root
 server/
-  skillScanner.ts  # filesystem scanner — reads each agent's skill dir
+  skillScanner.ts  # filesystem scanner — reads each agent's skill dir (symlink-aware)
   skillStore.ts    # CRUD + cross-agent sync
+  pluginScanner.ts # Claude Code plugin discovery (installed_plugins.json + manifests)
 vite.config.ts     # dev server + /api/* middleware
 ```
 

@@ -17,17 +17,23 @@ import {
 } from "lucide-react";
 import { agents } from "./data";
 import { AgentIcon } from "./agentIcons";
-import type { AgentId, Skill } from "./types";
+import type { AgentId, Plugin, Skill } from "./types";
 
 type AgentFilter = AgentId | "all";
 type Status = "synced" | "drift" | "pending";
 type Tab = "content" | "diff" | "deploys";
 type ViewMode = "edit" | "preview";
 type SortKey = "updated" | "name";
+type ViewMain = "skills" | "plugins";
 
 type SkillResponse = {
   skills: Skill[];
   scannedRoots: Record<AgentId, string[]>;
+};
+
+type PluginResponse = {
+  plugins: Plugin[];
+  marketplaceCount: number;
 };
 
 const AGENT_TONE: Record<AgentId, string> = {
@@ -76,6 +82,12 @@ export function App() {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [view, setView] = useState<ViewMain>("skills");
+  const [plugins, setPlugins] = useState<Plugin[]>([]);
+  const [pluginsLoading, setPluginsLoading] = useState(false);
+  const [pluginsError, setPluginsError] = useState("");
+  const [marketplaceCount, setMarketplaceCount] = useState(0);
+  const [pluginFilter, setPluginFilter] = useState<string>("");
   const [operationMessage, setOperationMessage] = useState("");
   const [operationError, setOperationError] = useState(false);
   const [editAgent, setEditAgent] = useState<AgentId>("codex");
@@ -113,11 +125,29 @@ export function App() {
     }
   };
 
+  const loadPlugins = async () => {
+    setPluginsLoading(true);
+    setPluginsError("");
+    try {
+      const response = await fetch("/api/plugins");
+      if (!response.ok) throw new Error(`Plugin API returned ${response.status}`);
+      const payload = (await response.json()) as PluginResponse;
+      setPlugins(payload.plugins);
+      setMarketplaceCount(payload.marketplaceCount);
+    } catch (error) {
+      setPluginsError(error instanceof Error ? error.message : "Unable to load plugins");
+    } finally {
+      setPluginsLoading(false);
+    }
+  };
+
   useEffect(() => { void loadSkills(); }, []);
+  useEffect(() => { if (view === "plugins" && plugins.length === 0 && !pluginsError) void loadPlugins(); }, [view]);
 
   const filteredSkills = useMemo(() => {
     const q = query.trim().toLowerCase();
     let out = skills.filter((skill) => {
+      if (pluginFilter && skill.pluginId !== pluginFilter) return false;
       if (activeAgent !== "all" && !skill.agents.includes(activeAgent)) return false;
       if (statusFilter !== "all" && computeStatus(skill) !== statusFilter) return false;
       if (!q) return true;
@@ -129,7 +159,7 @@ export function App() {
       return (b.updatedAt || "").localeCompare(a.updatedAt || "");
     });
     return out;
-  }, [activeAgent, statusFilter, query, sortBy, skills]);
+  }, [activeAgent, statusFilter, query, sortBy, skills, pluginFilter]);
 
   const selectedSkill = skills.find((s) => s.id === selectedId) ?? filteredSkills[0] ?? skills[0];
   const selectedStatus = selectedSkill ? computeStatus(selectedSkill) : "synced";
@@ -158,6 +188,12 @@ export function App() {
 
   const toggleSyncTarget = (agentId: AgentId) => {
     setDraftAgents((c) => c.includes(agentId) ? c.filter((x) => x !== agentId) : [...c, agentId]);
+  };
+
+  const toggleAllSyncTargets = () => {
+    const selectable = agents.map((a) => a.id).filter((id) => id !== editAgent);
+    const allOn = selectable.every((id) => draftAgents.includes(id));
+    setDraftAgents(allOn ? [] : selectable);
   };
 
   const toggleBulk = (id: string) => {
@@ -207,15 +243,38 @@ export function App() {
       <div className={`ca-body ${selectedSkill ? "has-drawer" : ""}`}>
         <Sidebar
           activeAgent={activeAgent}
-          onAgent={setActiveAgent}
+          onAgent={(a) => { setView("skills"); setActiveAgent(a); }}
           statusFilter={statusFilter}
           onStatus={setStatusFilter}
           counts={agentCounts}
           total={skills.length}
           driftCount={driftCount}
           scannedRoots={scannedRoots}
+          view={view}
+          onView={setView}
+          pluginCount={plugins.length}
+          pluginUpdateCount={plugins.filter((p) => p.updateAvailable).length}
         />
 
+        {view === "plugins" ? (
+          <PluginsPanel
+            plugins={plugins}
+            isLoading={pluginsLoading}
+            loadError={pluginsError}
+            marketplaceCount={marketplaceCount}
+            onRefresh={() => void loadPlugins()}
+            skillCountByPlugin={skills.reduce<Record<string, number>>((acc, s) => {
+              if (s.pluginId) acc[s.pluginId] = (acc[s.pluginId] ?? 0) + 1;
+              return acc;
+            }, {})}
+            onOpenInSkills={(pluginId) => {
+              setPluginFilter(pluginId);
+              setActiveAgent("all");
+              setStatusFilter("all");
+              setView("skills");
+            }}
+          />
+        ) : (
         <section className="ca-main">
           <header className="ca-mainhead">
             <div>
@@ -239,6 +298,16 @@ export function App() {
           <StatsStrip total={skills.length} drift={driftCount} agentCounts={agentCounts} skills={skills} />
 
           <div className="ca-toolbar">
+            {pluginFilter && (
+              <button
+                className="ca-filter is-on"
+                type="button"
+                onClick={() => setPluginFilter("")}
+                title="Clear plugin filter"
+              >
+                Plugin: <b>{pluginFilter.split("@")[0]}</b> <X size={11} />
+              </button>
+            )}
             <button
               className={`ca-filter ${statusFilter === "drift" ? "is-on warn" : ""}`}
               type="button"
@@ -265,7 +334,29 @@ export function App() {
 
           <div className="ca-table">
             <div className="ca-thead">
-              <div />
+              <div>
+                {filteredSkills.length > 0 && (
+                  <input
+                    type="checkbox"
+                    className="ca-check"
+                    aria-label="Select all skills"
+                    checked={filteredSkills.every((s) => bulkIds.has(s.id))}
+                    ref={(el) => {
+                      if (el) {
+                        const some = filteredSkills.some((s) => bulkIds.has(s.id));
+                        const all = filteredSkills.every((s) => bulkIds.has(s.id));
+                        el.indeterminate = some && !all;
+                      }
+                    }}
+                    onChange={(e) => {
+                      const next = new Set(bulkIds);
+                      if (e.target.checked) filteredSkills.forEach((s) => next.add(s.id));
+                      else filteredSkills.forEach((s) => next.delete(s.id));
+                      setBulkIds(next);
+                    }}
+                  />
+                )}
+              </div>
               <div>Skill</div>
               <div>Agents</div>
               <div>Owner</div>
@@ -296,8 +387,9 @@ export function App() {
             </div>
           </div>
         </section>
+        )}
 
-        {selectedSkill && (
+        {view === "skills" && selectedSkill && (
           <EditDrawer
             skill={selectedSkill}
             status={selectedStatus}
@@ -318,6 +410,7 @@ export function App() {
             onTab={setActiveTab}
             onViewMode={setViewMode}
             onToggleSync={toggleSyncTarget}
+            onToggleAllSync={toggleAllSyncTargets}
             onSave={async () => {
               if (!selectedSkill.paths[editAgent]) return;
               await mutateSkills("PUT", "/api/skills", {
@@ -351,6 +444,33 @@ export function App() {
         <BulkBar
           count={bulkIds.size}
           onClear={() => setBulkIds(new Set())}
+          onDelete={async () => {
+            const targets = skills.filter((s) => bulkIds.has(s.id));
+            if (targets.length === 0) return;
+            const total = targets.reduce((n, s) => n + Object.keys(s.paths).length, 0);
+            if (!window.confirm(`Delete ${total} file(s) across ${targets.length} skill(s)?`)) return;
+            setOperationMessage(""); setOperationError(false);
+            try {
+              let lastPayload: SkillResponse | null = null;
+              for (const skill of targets) {
+                for (const [agent, filePath] of Object.entries(skill.paths)) {
+                  const r = await fetch("/api/skills", {
+                    method: "DELETE",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ agent, path: filePath }),
+                  });
+                  const payload = await r.json();
+                  if (!r.ok || payload.error) throw new Error(payload.error || `Delete failed (${r.status})`);
+                  lastPayload = payload as SkillResponse;
+                }
+              }
+              if (lastPayload) applySkillResponse(lastPayload, `Deleted ${targets.length} skill(s)`);
+              setBulkIds(new Set());
+            } catch (error) {
+              setOperationMessage(error instanceof Error ? error.message : "Bulk delete failed");
+              setOperationError(true);
+            }
+          }}
         />
       )}
     </main>
@@ -401,7 +521,7 @@ function Topbar({ query, onQuery, count, drift, theme, onToggleTheme }: {
 }
 
 /* ─────────────────────────────────────────── Sidebar */
-function Sidebar({ activeAgent, onAgent, statusFilter, onStatus, counts, total, driftCount, scannedRoots }: {
+function Sidebar({ activeAgent, onAgent, statusFilter, onStatus, counts, total, driftCount, scannedRoots, view, onView, pluginCount, pluginUpdateCount }: {
   activeAgent: AgentFilter;
   onAgent: (a: AgentFilter) => void;
   statusFilter: Status | "all";
@@ -410,13 +530,17 @@ function Sidebar({ activeAgent, onAgent, statusFilter, onStatus, counts, total, 
   total: number;
   driftCount: number;
   scannedRoots: Record<AgentId, string[]>;
+  view: ViewMain;
+  onView: (v: ViewMain) => void;
+  pluginCount: number;
+  pluginUpdateCount: number;
 }) {
   return (
     <aside className="ca-rail">
       <div className="ca-rail-section">
         <div className="ca-rail-heading">Library</div>
         <button
-          className={`ca-rail-item ${activeAgent === "all" ? "is-active" : ""}`}
+          className={`ca-rail-item ${view === "skills" && activeAgent === "all" ? "is-active" : ""}`}
           onClick={() => onAgent("all")}
           type="button"
         >
@@ -429,7 +553,7 @@ function Sidebar({ activeAgent, onAgent, statusFilter, onStatus, counts, total, 
           return (
             <button
               key={agent.id}
-              className={`ca-rail-item ${activeAgent === agent.id ? "is-active" : ""}`}
+              className={`ca-rail-item ${view === "skills" && activeAgent === agent.id ? "is-active" : ""}`}
               onClick={() => onAgent(agent.id)}
               type="button"
             >
@@ -439,6 +563,30 @@ function Sidebar({ activeAgent, onAgent, statusFilter, onStatus, counts, total, 
             </button>
           );
         })}
+      </div>
+
+      <div className="ca-rail-section">
+        <div className="ca-rail-heading">Plugins</div>
+        <button
+          className={`ca-rail-item ${view === "plugins" ? "is-active" : ""}`}
+          onClick={() => onView("plugins")}
+          type="button"
+        >
+          <span className="ca-rail-dot" style={{ background: "var(--accent)" }} />
+          <span>Installed</span>
+          <span className="ca-rail-count">{pluginCount}</span>
+        </button>
+        {pluginUpdateCount > 0 && (
+          <button
+            className="ca-rail-item"
+            onClick={() => onView("plugins")}
+            type="button"
+          >
+            <span className="ca-rail-dot" style={{ background: "var(--amber)" }} />
+            <span className="ca-rail-warn">Updates</span>
+            <span className="ca-rail-count">{pluginUpdateCount}</span>
+          </button>
+        )}
       </div>
 
       <div className="ca-rail-section">
@@ -563,12 +711,12 @@ function SkillRow({ skill, selected, checked, onSelect, onCheck }: {
 }
 
 /* ─────────────────────────────────────────── Bulk action bar */
-function BulkBar({ count, onClear }: { count: number; onClear: () => void }) {
+function BulkBar({ count, onClear, onDelete }: { count: number; onClear: () => void; onDelete: () => void }) {
   return (
     <div className="ca-bulkbar" role="region" aria-label="Bulk actions">
       <span className="count"><b>{count}</b> selected</span>
-      <button className="ca-btn ca-btn--ghost" type="button"><Copy size={13} /> Sync</button>
-      <button className="ca-btn ca-btn--danger" type="button"><Trash2 size={13} /> Delete</button>
+      <button className="ca-btn ca-btn--ghost" type="button" disabled title="Bulk sync not implemented yet"><Copy size={13} /> Sync</button>
+      <button className="ca-btn ca-btn--danger" type="button" onClick={onDelete}><Trash2 size={13} /> Delete</button>
       <button className="ca-btn ca-btn--ghost" type="button" onClick={onClear} title="Clear selection">
         <X size={13} />
       </button>
@@ -597,6 +745,7 @@ function EditDrawer(props: {
   onTab: (t: Tab) => void;
   onViewMode: (m: ViewMode) => void;
   onToggleSync: (a: AgentId) => void;
+  onToggleAllSync: () => void;
   onSave: () => void;
   onDelete: () => void;
   onSync: () => void;
@@ -656,6 +805,20 @@ function EditDrawer(props: {
       <div className="ca-drawer-foot ca-drawer-foot--top">
         <div className="sync-targets">
           <span>Sync →</span>
+          {(() => {
+            const selectable = agents.filter((a) => a.id !== editAgent);
+            const allOn = selectable.length > 0 && selectable.every((a) => syncTargets.includes(a.id));
+            return (
+              <button
+                type="button"
+                onClick={props.onToggleAllSync}
+                className="ca-sync-all"
+                title={allOn ? "Clear all" : "Select all"}
+              >
+                {allOn ? "Clear" : "All"}
+              </button>
+            );
+          })()}
           {agents.map((agent) => {
             const AIcon = AgentIcon[agent.id];
             const on = syncTargets.includes(agent.id);
@@ -822,6 +985,138 @@ function DeploysView({ skill, editAgent, onSelect }: { skill: Skill; editAgent: 
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────── Plugins Panel */
+function PluginsPanel({ plugins, isLoading, loadError, marketplaceCount, onRefresh, skillCountByPlugin, onOpenInSkills }: {
+  plugins: Plugin[];
+  isLoading: boolean;
+  loadError: string;
+  marketplaceCount: number;
+  onRefresh: () => void;
+  skillCountByPlugin: Record<string, number>;
+  onOpenInSkills: (pluginId: string) => void;
+}) {
+  const updates = plugins.filter((p) => p.updateAvailable).length;
+  return (
+    <section className="ca-main">
+      <header className="ca-mainhead">
+        <div>
+          <div className="ca-crumb">
+            <span>skillmgmt</span> <span style={{ color: "var(--dim)" }}>/</span> <b>plugins</b>
+          </div>
+          <h1>Installed plugins</h1>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="ca-btn ca-btn--ghost" type="button" onClick={onRefresh}>
+            <RefreshCw size={13} /> Refresh
+          </button>
+        </div>
+      </header>
+
+      {updates > 0 && (
+        <div className="ca-update-banner">
+          <AlertTriangle size={14} />
+          <span><b>{updates}</b> plugin{updates > 1 ? "s have" : " has"} an update available.</span>
+          <code>/plugin</code>
+          <span className="ca-update-banner-sub">— run this in Claude Code to update.</span>
+        </div>
+      )}
+
+      <div className="ca-stats">
+        <div className="ca-stat">
+          <span className="ca-stat-label">Plugins</span>
+          <span className="ca-stat-value">{plugins.length}</span>
+          <span className="ca-stat-sub">from {marketplaceCount} marketplaces</span>
+        </div>
+        <div className="ca-stat">
+          <span className="ca-stat-label">Updates available</span>
+          <span className="ca-stat-value" style={updates > 0 ? { color: "var(--amber)" } : undefined}>{updates}</span>
+          <span className="ca-stat-sub">run /plugin to update</span>
+        </div>
+        <div className="ca-stat">
+          <span className="ca-stat-label">User-scoped</span>
+          <span className="ca-stat-value">{plugins.filter((p) => p.scope === "user").length}</span>
+          <span className="ca-stat-sub">project: {plugins.filter((p) => p.scope === "project").length}</span>
+        </div>
+      </div>
+
+      <div className="ca-table ca-table--plugins">
+        <div className="ca-thead">
+          <div>Plugin</div>
+          <div>Version</div>
+          <div>Marketplace</div>
+          <div>Scope</div>
+          <div>Components</div>
+          <div>Updated</div>
+        </div>
+        <div className="ca-tbody">
+          {isLoading && (
+            <div className="ca-empty"><RefreshCw size={20} /><strong>Scanning plugin manifests…</strong></div>
+          )}
+          {loadError && (
+            <div className="ca-empty error"><AlertTriangle size={20} /><strong>Could not load plugins</strong><span>{loadError}</span></div>
+          )}
+          {!isLoading && !loadError && plugins.length === 0 && (
+            <div className="ca-empty"><Search size={20} /><strong>No plugins installed</strong><span>Use /plugin to install one.</span></div>
+          )}
+          {plugins.map((plugin) => (
+            <PluginRow
+              key={plugin.id}
+              plugin={plugin}
+              skillCount={skillCountByPlugin[plugin.id] ?? 0}
+              onOpenInSkills={() => onOpenInSkills(plugin.id)}
+            />
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PluginRow({ plugin, skillCount, onOpenInSkills }: { plugin: Plugin; skillCount: number; onOpenInSkills: () => void }) {
+  const { components } = plugin;
+  const hasSkills = skillCount > 0 || components.skills > 0;
+  return (
+    <div
+      className={`ca-row ca-row--plugin ${hasSkills ? "is-clickable" : ""}`}
+      title={hasSkills ? `${plugin.description}\n\nClick to view bundled skills` : plugin.description}
+      onClick={hasSkills ? onOpenInSkills : undefined}
+      role={hasSkills ? "button" : undefined}
+    >
+      <div className="ca-row-skill">
+        <strong>{plugin.name}</strong>
+        <span className="ca-row-sub">{plugin.description}</span>
+        {plugin.sourceRepo && <span className="ca-row-sub repo">{plugin.sourceRepo}</span>}
+      </div>
+      <div>
+        <span className={plugin.updateAvailable ? "ca-pill warn" : "ca-pill"}>
+          {plugin.version}
+          {plugin.updateAvailable && plugin.latestVersion && <> → <b>{plugin.latestVersion}</b></>}
+        </span>
+      </div>
+      <div>
+        <span className="ca-row-sub">{plugin.marketplaceId}</span>
+      </div>
+      <div>
+        <span className="ca-scope">{plugin.scope}</span>
+      </div>
+      <div>
+        {skillCount > 0 ? (
+          <span className="ca-skills-link">{skillCount} skill{skillCount > 1 ? "s" : ""} <ChevronRight size={12} /></span>
+        ) : (
+          <span className="ca-row-sub">
+            {components.skills > 0 && `${components.skills} skills `}
+            {components.agents > 0 && `${components.agents} agents `}
+            {components.commands > 0 && `${components.commands} cmds `}
+            {components.hooks > 0 && "hooks"}
+            {components.skills + components.agents + components.commands + components.hooks === 0 && "—"}
+          </span>
+        )}
+      </div>
+      <div className="ca-row-sub">{relativeTime(plugin.lastUpdated)}</div>
     </div>
   );
 }
