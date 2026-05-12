@@ -3,6 +3,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { AgentId, Skill } from "../src/types";
+import { listPluginSkillRoots } from "./pluginScanner";
 
 type SkillCandidate = {
   agent: AgentId;
@@ -12,19 +13,18 @@ type SkillCandidate = {
   summary: string;
   content: string;
   updatedAt: string;
+  pluginId?: string;
 };
 
 const home = homedir();
 
-export const skillRoots: Record<AgentId, string[]> = {
+const agentSpecificRoots: Record<AgentId, string[]> = {
   claude: [
     path.join(home, ".claude", "skills"),
-    path.join(home, ".claude", ".agents", "skills"),
     path.join(home, ".claude", ".cursor", "skills"),
   ],
   codex: [
     path.join(home, ".codex", "skills"),
-    path.join(home, ".agents", "skills"),
     path.join(home, "Documents", "obsidian-wiki", ".skills"),
   ],
   cursor: [
@@ -34,25 +34,48 @@ export const skillRoots: Record<AgentId, string[]> = {
     path.join(home, ".cursor", "rules"),
   ],
   antigravity: [
-    path.join(home, ".gemini", "antigravity"),
+    path.join(home, ".gemini", "antigravity", "skills"),
     path.join(home, ".antigravity", "skills"),
   ],
 };
+
+// Vendor-neutral AGENTS.md convention — skills here apply to every coding agent.
+export const sharedSkillRoots: string[] = [
+  path.join(home, ".agents", "skills"),
+  path.join(home, ".claude", ".agents", "skills"),
+];
+
+const allAgents = Object.keys(agentSpecificRoots) as AgentId[];
+
+// Agents that opt out of the vendor-neutral ~/.agents/skills convention.
+// Antigravity only loads from its own skill folders.
+const sharedRootOptOut: Set<AgentId> = new Set(["antigravity"]);
+
+export const skillRoots: Record<AgentId, string[]> = Object.fromEntries(
+  allAgents.map((agent) => [
+    agent,
+    sharedRootOptOut.has(agent)
+      ? [...agentSpecificRoots[agent]]
+      : [...agentSpecificRoots[agent], ...sharedSkillRoots],
+  ]),
+) as Record<AgentId, string[]>;
 
 const targetFileNames = new Set(["SKILL.md"]);
 const cursorFileNames = new Set(["AGENTS.md"]);
 
 export async function scanSkills(): Promise<{ skills: Skill[]; scannedRoots: Record<AgentId, string[]> }> {
+  const pluginRoots = await listPluginSkillRoots();
   const candidates = (
-    await Promise.all(
-      Object.entries(skillRoots).map(async ([agent, agentRoots]) =>
+    await Promise.all([
+      ...Object.entries(skillRoots).map(async ([agent, agentRoots]) =>
         Promise.all(
           agentRoots
             .filter((root) => existsSync(root))
             .map((root) => scanRoot(agent as AgentId, root)),
         ),
       ),
-    )
+      ...pluginRoots.map((entry) => scanRoot("claude", entry.root, entry.pluginId)),
+    ])
   ).flat(2);
 
   const groups = new Map<string, SkillCandidate[]>();
@@ -76,10 +99,10 @@ export async function scanSkills(): Promise<{ skills: Skill[]; scannedRoots: Rec
   };
 }
 
-async function scanRoot(agent: AgentId, root: string): Promise<SkillCandidate[]> {
+async function scanRoot(agent: AgentId, root: string, pluginId?: string): Promise<SkillCandidate[]> {
   const files = await walk(root, agent);
   const candidates = await Promise.all(
-    files.map(async (filePath) => parseSkillFile(agent, root, filePath)),
+    files.map(async (filePath) => parseSkillFile(agent, root, filePath, pluginId)),
   );
 
   return candidates.filter((candidate): candidate is SkillCandidate => Boolean(candidate));
@@ -100,7 +123,18 @@ async function walk(root: string, agent: AgentId): Promise<string[]> {
 
     for (const entry of entries) {
       const fullPath = path.join(current, entry.name);
-      if (entry.isDirectory()) {
+      let isDir = entry.isDirectory();
+      let isFile = entry.isFile();
+      if (entry.isSymbolicLink()) {
+        try {
+          const resolved = await stat(fullPath);
+          isDir = resolved.isDirectory();
+          isFile = resolved.isFile();
+        } catch {
+          continue;
+        }
+      }
+      if (isDir) {
         if (shouldSkipDirectory(entry.name)) {
           continue;
         }
@@ -108,7 +142,7 @@ async function walk(root: string, agent: AgentId): Promise<string[]> {
         continue;
       }
 
-      if (entry.isFile() && isSkillFile(agent, entry.name, fullPath)) {
+      if (isFile && isSkillFile(agent, entry.name, fullPath)) {
         found.push(fullPath);
       }
     }
@@ -153,6 +187,7 @@ async function parseSkillFile(
   agent: AgentId,
   root: string,
   filePath: string,
+  pluginId?: string,
 ): Promise<SkillCandidate | undefined> {
   try {
     const [content, info] = await Promise.all([readFile(filePath, "utf8"), stat(filePath)]);
@@ -173,6 +208,7 @@ async function parseSkillFile(
       summary: frontmatter.description ?? firstMeaningfulLine(content) ?? "No description found.",
       content,
       updatedAt: info.mtime.toISOString().slice(0, 10),
+      pluginId,
     };
   } catch {
     return undefined;
@@ -243,13 +279,14 @@ function firstMeaningfulLine(content: string) {
 function toSkill(id: string, group: SkillCandidate[]): Skill {
   const primary = group.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
   const agentSet = new Set(group.map((candidate) => candidate.agent));
+  const pluginId = group.find((candidate) => candidate.pluginId)?.pluginId;
 
   return {
     id,
     name: primary.name,
     summary: primary.summary,
     content: primary.content,
-    owner: "Local filesystem",
+    owner: pluginId ? `Plugin: ${pluginId.split("@")[0]}` : "Local filesystem",
     updatedAt: primary.updatedAt,
     version: "local",
     agents: [...agentSet],
@@ -260,6 +297,7 @@ function toSkill(id: string, group: SkillCandidate[]): Skill {
       group.map((candidate) => [candidate.agent, candidate.content]),
     ) as Skill["contents"],
     triggers: inferTriggers(primary.summary),
+    pluginId,
   };
 }
 
