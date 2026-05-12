@@ -43,6 +43,7 @@ server/
   skillStore.ts    # CRUD + cross-agent sync
 vite.config.ts     # dev server + /api/* middleware
 ```
+<img width="3274" height="1081" alt="image" src="https://github.com/user-attachments/assets/e470970f-b210-4b22-bc15-45e8a0c16cfe" />
 
 ## Getting started
 
