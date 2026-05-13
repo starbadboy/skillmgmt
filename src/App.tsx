@@ -1297,14 +1297,6 @@ function HooksPanel({ hooks, scannedFiles, isLoading, loadError, onRefresh, onAp
       )}
 
       <div className="ca-table ca-table--hooks">
-        <div className="ca-thead">
-          <div>Event</div>
-          <div>Matcher</div>
-          <div>Command</div>
-          <div>Source</div>
-          <div>Type</div>
-          <div>Actions</div>
-        </div>
         <div className="ca-tbody">
           {isLoading && (
             <div className="ca-empty"><RefreshCw size={20} /><strong>Scanning settings…</strong></div>
@@ -1320,65 +1312,74 @@ function HooksPanel({ hooks, scannedFiles, isLoading, loadError, onRefresh, onAp
             const busy = busyId === hook.id;
             return (
               <div key={hook.id} className="ca-row--hook" title={hook.file}>
-                <div><span className="ca-pill">{hook.event}</span></div>
-                <div>
-                  {isEditing ? (
-                    <input
-                      className="ca-hook-input"
-                      value={draftMatcher}
-                      onChange={(e) => setDraftMatcher(e.target.value)}
-                      placeholder="* or tool name"
-                    />
-                  ) : (
-                    <code>{hook.matcher}</code>
-                  )}
+                <div className="ca-hook-meta">
+                  <span className="ca-pill">{hook.event}</span>
+                  <span className="ca-hook-matcher">
+                    <span className="ca-hook-label">matcher</span>
+                    {isEditing ? (
+                      <input
+                        className="ca-hook-input"
+                        value={draftMatcher}
+                        onChange={(e) => setDraftMatcher(e.target.value)}
+                        placeholder="* or tool name"
+                        style={{ width: 160, display: "inline-block" }}
+                      />
+                    ) : (
+                      <code>{hook.matcher}</code>
+                    )}
+                  </span>
+                  <span className="ca-scope">{hook.source}</span>
+                  <span className="ca-row-sub">
+                    <span className="ca-hook-label">type</span>
+                    {hook.type}
+                    {isEditing ? (
+                      <>
+                        <span className="ca-hook-label" style={{ marginLeft: 10 }}>timeout</span>
+                        <input
+                          className="ca-hook-input"
+                          value={draftTimeout}
+                          onChange={(e) => setDraftTimeout(e.target.value.replace(/[^0-9]/g, ""))}
+                          placeholder="ms"
+                          style={{ width: 80, display: "inline-block" }}
+                        />
+                      </>
+                    ) : (
+                      hook.timeout ? <> · {hook.timeout}ms</> : null
+                    )}
+                  </span>
+                  <span className="ca-hook-meta-spacer" />
+                  <div className="ca-hook-actions">
+                    {isEditing ? (
+                      <>
+                        <button className="ca-btn ca-btn--primary" type="button" disabled={busy} onClick={() => void saveEdit(hook)}>
+                          <Save size={12} /> Save
+                        </button>
+                        <button className="ca-btn ca-btn--ghost" type="button" disabled={busy} onClick={cancelEdit}>
+                          <X size={12} /> Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button className="ca-icon-btn" type="button" disabled={busy} title="Edit" onClick={() => startEdit(hook)}>
+                          <MoreHorizontal size={14} />
+                        </button>
+                        <button className="ca-icon-btn ca-icon-btn--danger" type="button" disabled={busy} title="Delete" onClick={() => void deleteRow(hook)}>
+                          <Trash2 size={14} />
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
-                <div>
-                  {isEditing ? (
-                    <textarea
-                      className="ca-hook-input ca-hook-textarea"
-                      value={draftCommand}
-                      onChange={(e) => setDraftCommand(e.target.value)}
-                      rows={2}
-                    />
-                  ) : (
-                    <code>{hook.command}</code>
-                  )}
-                </div>
-                <div><span className="ca-scope">{hook.source}</span></div>
-                <div>
-                  {isEditing ? (
-                    <input
-                      className="ca-hook-input"
-                      value={draftTimeout}
-                      onChange={(e) => setDraftTimeout(e.target.value.replace(/[^0-9]/g, ""))}
-                      placeholder="timeout ms"
-                    />
-                  ) : (
-                    <span className="ca-row-sub">{hook.type}{hook.timeout ? ` · ${hook.timeout}ms` : ""}</span>
-                  )}
-                </div>
-                <div className="ca-hook-actions">
-                  {isEditing ? (
-                    <>
-                      <button className="ca-btn ca-btn--primary" type="button" disabled={busy} onClick={() => void saveEdit(hook)}>
-                        <Save size={12} /> Save
-                      </button>
-                      <button className="ca-btn ca-btn--ghost" type="button" disabled={busy} onClick={cancelEdit}>
-                        <X size={12} /> Cancel
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button className="ca-icon-btn" type="button" disabled={busy} title="Edit" onClick={() => startEdit(hook)}>
-                        <MoreHorizontal size={14} />
-                      </button>
-                      <button className="ca-icon-btn ca-icon-btn--danger" type="button" disabled={busy} title="Delete" onClick={() => void deleteRow(hook)}>
-                        <Trash2 size={14} />
-                      </button>
-                    </>
-                  )}
-                </div>
+                {isEditing ? (
+                  <textarea
+                    className="ca-hook-input ca-hook-textarea"
+                    value={draftCommand}
+                    onChange={(e) => setDraftCommand(e.target.value)}
+                    rows={3}
+                  />
+                ) : (
+                  <code>{hook.command}</code>
+                )}
               </div>
             );
           })}

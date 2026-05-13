@@ -365,38 +365,41 @@ input.ca-check:indeterminate::after { content: ""; width: 8px; height: 2px; back
 .ca-row--plugin.is-clickable { cursor: pointer; }
 .ca-row--plugin.is-clickable:hover { background: var(--surface-2); }
 
-/* Hooks view */
-.ca-table--hooks { grid-template-rows: 36px 1fr; }
-.ca-table--hooks .ca-thead,
+/* Hooks view — card layout (no rigid grid columns) */
+.ca-table--hooks { grid-template-rows: 1fr; }
+.ca-table--hooks .ca-tbody { grid-auto-rows: auto; padding: 6px; gap: 8px; display: flex; flex-direction: column; }
 .ca-row--hook {
-  display: grid;
-  grid-template-columns: 140px 140px minmax(0, 2.4fr) 110px 140px 140px;
-  align-items: start;
-  column-gap: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--surface-2);
 }
-.ca-table--hooks .ca-thead { align-items: center; }
-.ca-table--hooks .ca-thead > div { padding: 0 14px; min-width: 0; }
-.ca-table--hooks .ca-tbody { grid-auto-rows: auto; }
-.ca-row--hook {
-  border-top: 1px solid var(--hairline);
-  padding: 12px 0;
-  min-height: 48px;
+.ca-hook-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
-.ca-row--hook:first-child { border-top: 0; }
-.ca-row--hook > div { padding: 0 14px; min-width: 0; }
+.ca-hook-meta-spacer { flex: 1; }
 .ca-row--hook code {
   display: block;
   font-family: 'Geist Mono', ui-monospace, monospace;
   font-size: 11.5px;
   color: var(--text);
-  background: var(--surface-2);
+  background: var(--surface);
   border: 1px solid var(--hairline);
   border-radius: 6px;
-  padding: 6px 8px;
+  padding: 8px 10px;
   white-space: pre-wrap;
-  word-break: break-all;
-  line-height: 1.45;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+  width: 100%;
+  box-sizing: border-box;
 }
+.ca-hook-matcher code { display: inline-block; width: auto; padding: 3px 7px; }
 .ca-row--hook .ca-pill {
   font-family: 'Geist Mono', ui-monospace, monospace;
   font-size: 11px;
@@ -406,7 +409,7 @@ input.ca-check:indeterminate::after { content: ""; width: 8px; height: 2px; back
   align-items: center;
   padding: 2px 8px;
   border-radius: 999px;
-  background: var(--surface-2);
+  background: var(--surface);
   border: 1px solid var(--hairline);
   font-size: 10.5px;
   text-transform: uppercase;
@@ -414,6 +417,7 @@ input.ca-check:indeterminate::after { content: ""; width: 8px; height: 2px; back
   color: var(--text-2);
 }
 .ca-row--hook .ca-row-sub { color: var(--muted); font-size: 11.5px; }
+.ca-hook-label { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; margin-right: 4px; }
 .ca-hook-input {
   width: 100%;
   background: var(--surface-2);
