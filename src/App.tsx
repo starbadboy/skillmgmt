@@ -1220,8 +1220,8 @@ function HooksPanel({ hooks, scannedFiles, isLoading, loadError, onRefresh }: {
         </div>
       </div>
 
-      <div className="ca-table">
-        <div className="ca-thead" style={{ gridTemplateColumns: "1fr 1fr 2fr 1fr 1fr" }}>
+      <div className="ca-table ca-table--hooks">
+        <div className="ca-thead">
           <div>Event</div>
           <div>Matcher</div>
           <div>Command</div>
@@ -1239,15 +1239,10 @@ function HooksPanel({ hooks, scannedFiles, isLoading, loadError, onRefresh }: {
             <div className="ca-empty"><Search size={20} /><strong>No hooks configured</strong><span>Add hooks via settings.json.</span></div>
           )}
           {hooks.map((hook) => (
-            <div
-              key={hook.id}
-              className="ca-row"
-              style={{ gridTemplateColumns: "1fr 1fr 2fr 1fr 1fr" }}
-              title={hook.file}
-            >
+            <div key={hook.id} className="ca-row--hook" title={hook.file}>
               <div><span className="ca-pill">{hook.event}</span></div>
               <div><code>{hook.matcher}</code></div>
-              <div className="ca-row-skill"><code style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{hook.command}</code></div>
+              <div><code>{hook.command}</code></div>
               <div><span className="ca-scope">{hook.source}</span></div>
               <div><span className="ca-row-sub">{hook.type}{hook.timeout ? ` · ${hook.timeout}ms` : ""}</span></div>
             </div>
