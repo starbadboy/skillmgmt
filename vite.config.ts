@@ -4,6 +4,12 @@ import { scanSkills } from "./server/skillScanner";
 import { scanPlugins } from "./server/pluginScanner";
 import { scanHooks } from "./server/hookScanner";
 import {
+  deleteHook,
+  updateHook,
+  type HookDeletePayload,
+  type HookUpdatePayload,
+} from "./server/hookStore";
+import {
   createSkill,
   deleteSkill,
   syncSkill,
@@ -45,6 +51,16 @@ async function skillApiHandler(request: any, response: any, next: () => void) {
   try {
     if (method === "GET" && url.pathname === "/hooks") {
       sendJson(response, await scanHooks());
+      return;
+    }
+
+    if (method === "PUT" && url.pathname === "/hooks") {
+      sendJson(response, await updateHook(await readJson<HookUpdatePayload>(request)));
+      return;
+    }
+
+    if (method === "DELETE" && url.pathname === "/hooks") {
+      sendJson(response, await deleteHook(await readJson<HookDeletePayload>(request)));
       return;
     }
 

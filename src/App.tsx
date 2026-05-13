@@ -288,6 +288,10 @@ export function App() {
             isLoading={hooksLoading}
             loadError={hooksError}
             onRefresh={() => void loadHooks()}
+            onApplyResponse={(payload) => {
+              setHooks(payload.hooks);
+              setHookFiles(payload.scannedFiles);
+            }}
           />
         ) : view === "plugins" ? (
           <PluginsPanel
@@ -1169,13 +1173,79 @@ function PluginRow({ plugin, skillCount, onOpenInSkills }: { plugin: Plugin; ski
 }
 
 /* ─────────────────────────────────────────── Hooks Panel */
-function HooksPanel({ hooks, scannedFiles, isLoading, loadError, onRefresh }: {
+function HooksPanel({ hooks, scannedFiles, isLoading, loadError, onRefresh, onApplyResponse }: {
   hooks: Hook[];
   scannedFiles: string[];
   isLoading: boolean;
   loadError: string;
   onRefresh: () => void;
+  onApplyResponse: (payload: HookResponse) => void;
 }) {
+  const [editingId, setEditingId] = useState<string>("");
+  const [draftMatcher, setDraftMatcher] = useState("");
+  const [draftCommand, setDraftCommand] = useState("");
+  const [draftTimeout, setDraftTimeout] = useState("");
+  const [busyId, setBusyId] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
+
+  const startEdit = (hook: Hook) => {
+    setEditingId(hook.id);
+    setDraftMatcher(hook.matcher);
+    setDraftCommand(hook.command);
+    setDraftTimeout(hook.timeout ? String(hook.timeout) : "");
+    setErrorMsg("");
+  };
+
+  const cancelEdit = () => {
+    setEditingId("");
+    setErrorMsg("");
+  };
+
+  const saveEdit = async (hook: Hook) => {
+    setBusyId(hook.id);
+    setErrorMsg("");
+    try {
+      const trimmedTimeout = draftTimeout.trim();
+      const response = await fetch("/api/hooks", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: hook.id,
+          matcher: draftMatcher,
+          command: draftCommand,
+          timeout: trimmedTimeout === "" ? null : Number(trimmedTimeout),
+        }),
+      });
+      if (!response.ok) throw new Error(`Save failed: ${response.status}`);
+      onApplyResponse((await response.json()) as HookResponse);
+      setEditingId("");
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : "Save failed");
+    } finally {
+      setBusyId("");
+    }
+  };
+
+  const deleteRow = async (hook: Hook) => {
+    if (!window.confirm(`Delete this ${hook.event} hook?\n\n${hook.command}`)) return;
+    setBusyId(hook.id);
+    setErrorMsg("");
+    try {
+      const response = await fetch("/api/hooks", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: hook.id }),
+      });
+      if (!response.ok) throw new Error(`Delete failed: ${response.status}`);
+      onApplyResponse((await response.json()) as HookResponse);
+      if (editingId === hook.id) setEditingId("");
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : "Delete failed");
+    } finally {
+      setBusyId("");
+    }
+  };
+
   const byEvent = hooks.reduce<Record<string, Hook[]>>((acc, h) => {
     (acc[h.event] ??= []).push(h);
     return acc;
@@ -1220,6 +1290,12 @@ function HooksPanel({ hooks, scannedFiles, isLoading, loadError, onRefresh }: {
         </div>
       </div>
 
+      {errorMsg && (
+        <div className="ca-update-banner" style={{ borderColor: "var(--red, #b9434a)" }}>
+          <AlertTriangle size={14} /> <span>{errorMsg}</span>
+        </div>
+      )}
+
       <div className="ca-table ca-table--hooks">
         <div className="ca-thead">
           <div>Event</div>
@@ -1227,6 +1303,7 @@ function HooksPanel({ hooks, scannedFiles, isLoading, loadError, onRefresh }: {
           <div>Command</div>
           <div>Source</div>
           <div>Type</div>
+          <div>Actions</div>
         </div>
         <div className="ca-tbody">
           {isLoading && (
@@ -1238,15 +1315,73 @@ function HooksPanel({ hooks, scannedFiles, isLoading, loadError, onRefresh }: {
           {!isLoading && !loadError && hooks.length === 0 && (
             <div className="ca-empty"><Search size={20} /><strong>No hooks configured</strong><span>Add hooks via settings.json.</span></div>
           )}
-          {hooks.map((hook) => (
-            <div key={hook.id} className="ca-row--hook" title={hook.file}>
-              <div><span className="ca-pill">{hook.event}</span></div>
-              <div><code>{hook.matcher}</code></div>
-              <div><code>{hook.command}</code></div>
-              <div><span className="ca-scope">{hook.source}</span></div>
-              <div><span className="ca-row-sub">{hook.type}{hook.timeout ? ` · ${hook.timeout}ms` : ""}</span></div>
-            </div>
-          ))}
+          {hooks.map((hook) => {
+            const isEditing = editingId === hook.id;
+            const busy = busyId === hook.id;
+            return (
+              <div key={hook.id} className="ca-row--hook" title={hook.file}>
+                <div><span className="ca-pill">{hook.event}</span></div>
+                <div>
+                  {isEditing ? (
+                    <input
+                      className="ca-hook-input"
+                      value={draftMatcher}
+                      onChange={(e) => setDraftMatcher(e.target.value)}
+                      placeholder="* or tool name"
+                    />
+                  ) : (
+                    <code>{hook.matcher}</code>
+                  )}
+                </div>
+                <div>
+                  {isEditing ? (
+                    <textarea
+                      className="ca-hook-input ca-hook-textarea"
+                      value={draftCommand}
+                      onChange={(e) => setDraftCommand(e.target.value)}
+                      rows={2}
+                    />
+                  ) : (
+                    <code>{hook.command}</code>
+                  )}
+                </div>
+                <div><span className="ca-scope">{hook.source}</span></div>
+                <div>
+                  {isEditing ? (
+                    <input
+                      className="ca-hook-input"
+                      value={draftTimeout}
+                      onChange={(e) => setDraftTimeout(e.target.value.replace(/[^0-9]/g, ""))}
+                      placeholder="timeout ms"
+                    />
+                  ) : (
+                    <span className="ca-row-sub">{hook.type}{hook.timeout ? ` · ${hook.timeout}ms` : ""}</span>
+                  )}
+                </div>
+                <div className="ca-hook-actions">
+                  {isEditing ? (
+                    <>
+                      <button className="ca-btn ca-btn--primary" type="button" disabled={busy} onClick={() => void saveEdit(hook)}>
+                        <Save size={12} /> Save
+                      </button>
+                      <button className="ca-btn ca-btn--ghost" type="button" disabled={busy} onClick={cancelEdit}>
+                        <X size={12} /> Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button className="ca-icon-btn" type="button" disabled={busy} title="Edit" onClick={() => startEdit(hook)}>
+                        <MoreHorizontal size={14} />
+                      </button>
+                      <button className="ca-icon-btn ca-icon-btn--danger" type="button" disabled={busy} title="Delete" onClick={() => void deleteRow(hook)}>
+                        <Trash2 size={14} />
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </section>
