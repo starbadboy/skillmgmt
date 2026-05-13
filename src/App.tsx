@@ -141,8 +141,7 @@ export function App() {
     }
   };
 
-  useEffect(() => { void loadSkills(); }, []);
-  useEffect(() => { if (view === "plugins" && plugins.length === 0 && !pluginsError) void loadPlugins(); }, [view]);
+  useEffect(() => { void loadSkills(); void loadPlugins(); }, []);
 
   const filteredSkills = useMemo(() => {
     const q = query.trim().toLowerCase();
