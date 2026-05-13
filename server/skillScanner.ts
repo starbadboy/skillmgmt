@@ -18,20 +18,25 @@ type SkillCandidate = {
 
 const home = homedir();
 
+const claudeRoots = [
+  path.join(home, ".claude", "skills"),
+  path.join(home, ".claude", ".cursor", "skills"),
+];
+
 const agentSpecificRoots: Record<AgentId, string[]> = {
-  claude: [
-    path.join(home, ".claude", "skills"),
-    path.join(home, ".claude", ".cursor", "skills"),
-  ],
+  claude: claudeRoots,
   codex: [
     path.join(home, ".codex", "skills"),
     path.join(home, "Documents", "obsidian-wiki", ".skills"),
   ],
+  // Cursor's "Use Claude Code skills in agent" setting makes ~/.claude/skills
+  // available to Cursor's native agent, so we inherit Claude's roots here.
   cursor: [
     path.join(home, ".cursor", "skills"),
     path.join(home, ".cursor", "skills-cursor"),
     path.join(home, ".cursor", "commands"),
     path.join(home, ".cursor", "rules"),
+    ...claudeRoots,
   ],
   antigravity: [
     path.join(home, ".gemini", "antigravity", "skills"),
@@ -74,7 +79,10 @@ export async function scanSkills(): Promise<{ skills: Skill[]; scannedRoots: Rec
             .map((root) => scanRoot(agent as AgentId, root)),
         ),
       ),
-      ...pluginRoots.map((entry) => scanRoot("claude", entry.root, entry.pluginId)),
+      ...pluginRoots.flatMap((entry) => [
+        scanRoot("claude", entry.root, entry.pluginId),
+        scanRoot("cursor", entry.root, entry.pluginId),
+      ]),
     ])
   ).flat(2);
 
