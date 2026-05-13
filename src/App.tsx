@@ -17,14 +17,19 @@ import {
 } from "lucide-react";
 import { agents } from "./data";
 import { AgentIcon } from "./agentIcons";
-import type { AgentId, Plugin, Skill } from "./types";
+import type { AgentId, Hook, Plugin, Skill } from "./types";
 
 type AgentFilter = AgentId | "all";
 type Status = "synced" | "drift" | "pending";
 type Tab = "content" | "diff" | "deploys";
 type ViewMode = "edit" | "preview";
 type SortKey = "updated" | "name";
-type ViewMain = "skills" | "plugins";
+type ViewMain = "skills" | "plugins" | "hooks";
+
+type HookResponse = {
+  hooks: Hook[];
+  scannedFiles: string[];
+};
 
 type SkillResponse = {
   skills: Skill[];
@@ -87,6 +92,10 @@ export function App() {
   const [pluginsLoading, setPluginsLoading] = useState(false);
   const [pluginsError, setPluginsError] = useState("");
   const [marketplaceCount, setMarketplaceCount] = useState(0);
+  const [hooks, setHooks] = useState<Hook[]>([]);
+  const [hookFiles, setHookFiles] = useState<string[]>([]);
+  const [hooksLoading, setHooksLoading] = useState(false);
+  const [hooksError, setHooksError] = useState("");
   const [pluginFilter, setPluginFilter] = useState<string>("");
   const [operationMessage, setOperationMessage] = useState("");
   const [operationError, setOperationError] = useState(false);
@@ -141,7 +150,23 @@ export function App() {
     }
   };
 
-  useEffect(() => { void loadSkills(); void loadPlugins(); }, []);
+  const loadHooks = async () => {
+    setHooksLoading(true);
+    setHooksError("");
+    try {
+      const response = await fetch("/api/hooks");
+      if (!response.ok) throw new Error(`Hooks API returned ${response.status}`);
+      const payload = (await response.json()) as HookResponse;
+      setHooks(payload.hooks);
+      setHookFiles(payload.scannedFiles);
+    } catch (error) {
+      setHooksError(error instanceof Error ? error.message : "Unable to load hooks");
+    } finally {
+      setHooksLoading(false);
+    }
+  };
+
+  useEffect(() => { void loadSkills(); void loadPlugins(); void loadHooks(); }, []);
 
   const filteredSkills = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -253,9 +278,18 @@ export function App() {
           onView={setView}
           pluginCount={plugins.length}
           pluginUpdateCount={plugins.filter((p) => p.updateAvailable).length}
+          hookCount={hooks.length}
         />
 
-        {view === "plugins" ? (
+        {view === "hooks" ? (
+          <HooksPanel
+            hooks={hooks}
+            scannedFiles={hookFiles}
+            isLoading={hooksLoading}
+            loadError={hooksError}
+            onRefresh={() => void loadHooks()}
+          />
+        ) : view === "plugins" ? (
           <PluginsPanel
             plugins={plugins}
             isLoading={pluginsLoading}
@@ -520,7 +554,7 @@ function Topbar({ query, onQuery, count, drift, theme, onToggleTheme }: {
 }
 
 /* ─────────────────────────────────────────── Sidebar */
-function Sidebar({ activeAgent, onAgent, statusFilter, onStatus, counts, total, driftCount, scannedRoots, view, onView, pluginCount, pluginUpdateCount }: {
+function Sidebar({ activeAgent, onAgent, statusFilter, onStatus, counts, total, driftCount, scannedRoots, view, onView, pluginCount, pluginUpdateCount, hookCount }: {
   activeAgent: AgentFilter;
   onAgent: (a: AgentFilter) => void;
   statusFilter: Status | "all";
@@ -533,6 +567,7 @@ function Sidebar({ activeAgent, onAgent, statusFilter, onStatus, counts, total, 
   onView: (v: ViewMain) => void;
   pluginCount: number;
   pluginUpdateCount: number;
+  hookCount: number;
 }) {
   return (
     <aside className="ca-rail">
@@ -586,6 +621,19 @@ function Sidebar({ activeAgent, onAgent, statusFilter, onStatus, counts, total, 
             <span className="ca-rail-count">{pluginUpdateCount}</span>
           </button>
         )}
+      </div>
+
+      <div className="ca-rail-section">
+        <div className="ca-rail-heading">Hooks</div>
+        <button
+          className={`ca-rail-item ${view === "hooks" ? "is-active" : ""}`}
+          onClick={() => onView("hooks")}
+          type="button"
+        >
+          <span className="ca-rail-dot" style={{ background: "var(--accent)" }} />
+          <span>Configured</span>
+          <span className="ca-rail-count">{hookCount}</span>
+        </button>
       </div>
 
       <div className="ca-rail-section">
@@ -1117,5 +1165,95 @@ function PluginRow({ plugin, skillCount, onOpenInSkills }: { plugin: Plugin; ski
       </div>
       <div className="ca-row-sub">{relativeTime(plugin.lastUpdated)}</div>
     </div>
+  );
+}
+
+/* ─────────────────────────────────────────── Hooks Panel */
+function HooksPanel({ hooks, scannedFiles, isLoading, loadError, onRefresh }: {
+  hooks: Hook[];
+  scannedFiles: string[];
+  isLoading: boolean;
+  loadError: string;
+  onRefresh: () => void;
+}) {
+  const byEvent = hooks.reduce<Record<string, Hook[]>>((acc, h) => {
+    (acc[h.event] ??= []).push(h);
+    return acc;
+  }, {});
+  const events = Object.keys(byEvent).sort();
+
+  return (
+    <section className="ca-main">
+      <header className="ca-mainhead">
+        <div>
+          <div className="ca-crumb">
+            <span>skillmgmt</span> <span style={{ color: "var(--dim)" }}>/</span> <b>hooks</b>
+          </div>
+          <h1>Configured hooks</h1>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="ca-btn ca-btn--ghost" type="button" onClick={onRefresh}>
+            <RefreshCw size={13} /> Refresh
+          </button>
+        </div>
+      </header>
+
+      <div className="ca-stats">
+        <div className="ca-stat">
+          <span className="ca-stat-label">Hooks</span>
+          <span className="ca-stat-value">{hooks.length}</span>
+          <span className="ca-stat-sub">across {events.length} event{events.length === 1 ? "" : "s"}</span>
+        </div>
+        <div className="ca-stat">
+          <span className="ca-stat-label">Settings files</span>
+          <span className="ca-stat-value">{scannedFiles.length}</span>
+          <span className="ca-stat-sub">user + project</span>
+        </div>
+        <div className="ca-stat">
+          <span className="ca-stat-label">Most common</span>
+          <span className="ca-stat-value">
+            {events.length > 0
+              ? events.reduce((a, b) => (byEvent[a].length >= byEvent[b].length ? a : b))
+              : "—"}
+          </span>
+          <span className="ca-stat-sub">event trigger</span>
+        </div>
+      </div>
+
+      <div className="ca-table">
+        <div className="ca-thead" style={{ gridTemplateColumns: "1fr 1fr 2fr 1fr 1fr" }}>
+          <div>Event</div>
+          <div>Matcher</div>
+          <div>Command</div>
+          <div>Source</div>
+          <div>Type</div>
+        </div>
+        <div className="ca-tbody">
+          {isLoading && (
+            <div className="ca-empty"><RefreshCw size={20} /><strong>Scanning settings…</strong></div>
+          )}
+          {loadError && (
+            <div className="ca-empty error"><AlertTriangle size={20} /><strong>Could not load hooks</strong><span>{loadError}</span></div>
+          )}
+          {!isLoading && !loadError && hooks.length === 0 && (
+            <div className="ca-empty"><Search size={20} /><strong>No hooks configured</strong><span>Add hooks via settings.json.</span></div>
+          )}
+          {hooks.map((hook) => (
+            <div
+              key={hook.id}
+              className="ca-row"
+              style={{ gridTemplateColumns: "1fr 1fr 2fr 1fr 1fr" }}
+              title={hook.file}
+            >
+              <div><span className="ca-pill">{hook.event}</span></div>
+              <div><code>{hook.matcher}</code></div>
+              <div className="ca-row-skill"><code style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{hook.command}</code></div>
+              <div><span className="ca-scope">{hook.source}</span></div>
+              <div><span className="ca-row-sub">{hook.type}{hook.timeout ? ` · ${hook.timeout}ms` : ""}</span></div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }

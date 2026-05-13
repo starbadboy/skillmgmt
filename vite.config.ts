@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { scanSkills } from "./server/skillScanner";
 import { scanPlugins } from "./server/pluginScanner";
+import { scanHooks } from "./server/hookScanner";
 import {
   createSkill,
   deleteSkill,
@@ -32,12 +33,21 @@ async function skillApiHandler(request: any, response: any, next: () => void) {
   const url = new URL(request.url ?? "/", "http://localhost");
   const method = request.method ?? "GET";
 
-  if (!url.pathname.startsWith("/skills") && !url.pathname.startsWith("/plugins")) {
+  if (
+    !url.pathname.startsWith("/skills") &&
+    !url.pathname.startsWith("/plugins") &&
+    !url.pathname.startsWith("/hooks")
+  ) {
     next();
     return;
   }
 
   try {
+    if (method === "GET" && url.pathname === "/hooks") {
+      sendJson(response, await scanHooks());
+      return;
+    }
+
     if (method === "GET" && url.pathname === "/plugins") {
       sendJson(response, await scanPlugins());
       return;

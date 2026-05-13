@@ -23,6 +23,30 @@ export type Agent = {
   color: string;
 };
 
+export type HookEvent =
+  | "PreToolUse"
+  | "PostToolUse"
+  | "UserPromptSubmit"
+  | "Stop"
+  | "SessionStart"
+  | "SessionEnd"
+  | "Notification"
+  | "PreCompact"
+  | string;
+
+export type HookSource = "user" | "user-local" | "project" | "project-local";
+
+export type Hook = {
+  id: string;
+  source: HookSource;
+  file: string;
+  event: HookEvent;
+  matcher: string;
+  type: string;
+  command: string;
+  timeout?: number;
+};
+
 export type PluginComponentCounts = {
   skills: number;
   agents: number;
